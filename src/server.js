@@ -252,10 +252,33 @@ app.get('/sitemap.xml', async (req,res) => {
   } catch (e) { res.status(500).type('text/plain').send(e.message); }
 });
 
-app.get('/health', async (req,res) => {
-  const { error } = await supabase.from('articles').select('id').limit(1);
-  res.status(error ? 503 : 200).json({ ok: !error, version: '4.4.0-growth-engine', database: !error, time: new Date().toISOString() });
-});
+const healthHandler = async (req,res) => {
+  try {
+    const { data, error } = await adminClient.from('articles').select('id').limit(1);
+    if (error) {
+      return res.status(503).json({
+        ok: false,
+        version: '4.4.0-growth-engine',
+        database: false,
+        error: error.message,
+        code: error.code || null,
+        hint: error.hint || null,
+        time: new Date().toISOString()
+      });
+    }
+    res.json({ ok: true, version: '4.4.0-growth-engine', database: true, articlesQuery: true, time: new Date().toISOString() });
+  } catch (error) {
+    res.status(503).json({
+      ok: false,
+      version: '4.4.0-growth-engine',
+      database: false,
+      error: error?.message || 'Database connection failed',
+      time: new Date().toISOString()
+    });
+  }
+};
+app.get('/health', healthHandler);
+app.get('/api/health', healthHandler);
 
 app.use((err, req, res, next) => {
   console.error(err);
