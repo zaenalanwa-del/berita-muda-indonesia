@@ -56,6 +56,10 @@ app.get('/disclaimer', (req,res)=>res.sendFile('disclaimer.html',{root:'public'}
 
 app.use(express.static('public', { extensions: ['html'] }));
 
+app.get('/', (req, res) => {
+  res.sendFile('index.html', { root: 'public' });
+});
+
 const authLimiter = rateLimit({ windowMs: 15 * 60_000, max: 10, standardHeaders: true, legacyHeaders: false });
 const interactionLimiter = rateLimit({ windowMs: 60_000, max: 30, standardHeaders: true, legacyHeaders: false });
 const cleanLimit = (v, max, fallback) => Math.min(Math.max(Number(v) || fallback, 1), max);
