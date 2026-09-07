@@ -92,15 +92,15 @@ async function load(){
       fetch('/api/trending?limit=9').then(r=>r.json()),
       fetch('/api/ads?placement=top').then(r=>r.json())
     ]);
-    if($('#articles'))$('#articles').innerHTML=(a||[]).map(x=>`<article class="card"><img src="${esc(x.image_url||'/assets/brand-reference.png')}" onerror="this.src='/assets/brand-reference.png'"><div class="card-body"><div class="cat">${esc(x.category)}</div><h3><a href="/berita/${encodeURIComponent(x.id)}">${esc(x.title)}</a></h3><p>${esc(x.summary||x.description||'')}</p><div class="meta">${esc(x.source)} · ${new Date(x.published_at||x.created_at).toLocaleString('id-ID')} · ${x.views||0} views · ${x.likes||0} likes · ${x.shares||0} shares</div>${shareButtons('article',x.id,x.title)}</div></article>`).join('');
+    if($('#articles'))$('#articles').innerHTML=(a||[]).map(x=>`<article class="card"><img src="${esc(x.image_url||'/assets/brand-reference.png')}" onerror="this.src='/assets/brand-reference.png'"><div class="card-body"><div class="cat">${esc(x.category)}</div><h3><a href="/berita/${encodeURIComponent(x.id)}">${esc(x.title)}</a></h3><p>${esc(x.summary||x.description||'')}</p><div class="meta">${esc(x.source)} · ${new Date(x.published_at||x.created_at).toLocaleString('id-ID')} · ${x.views||0} views · ${x.likes||0} likes · ${x.shares||0} shares</div>${articleLikeButton(x)}${shareButtons('article',x.id,x.title)}</div></article>`).join('');
     if($('#ticker'))$('#ticker').textContent=(a||[]).slice(0,5).map(x=>x.title).join(' • ');
     if($('#lastsync'))$('#lastsync').textContent='Auto-sync aktif • '+new Date().toLocaleTimeString('id-ID');
     if($('#videos')){
       $('#videos').innerHTML=(v||[]).map(videoCard).join('');
       document.querySelectorAll('.video-watch').forEach(b=>b.onclick=()=>watchVideo(b.dataset.id));
-      bindShares()
     }
     renderTrending(t||[]);
+    bindAllInteractions();
     renderAds(ads||[],'#topAd');
     const ads2=await fetch('/api/ads?placement=inline').then(r=>r.json()).catch(()=>[]);
     renderAds(ads2,'#ads')
