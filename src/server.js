@@ -146,8 +146,41 @@ app.get('/api/trending', async (req, res) => {
   }
 });
 
-app.get('/api/ads', async (req,res)=>{
-  try { const placement=String(req.query.placement||'top'); const {data,error}=await supabase.from('ad_campaigns').select('id,advertiser_name,title,placement,image_url,target_url,alt_text').eq('placement',placement).eq('active',true).lte('starts_at',new Date().toISOString()).or('ends_at.is.null,ends_at.gte.'+new Date().toISOString()).order('created_at',{ascending:false}).limit(5); if(error) throw error; res.json(data||[]); } catch(e){res.status(500).json({error:e.message});}
+app.get('/api/ads', async (req, res) => {
+  try {
+    const placement = String(req.query.placement || 'top');
+
+    const now = new Date().toISOString();
+
+    const { data, error } = await supabase
+      .from('ad_campaigns')
+      .select(
+        'id,advertiser_name,title,placement,image_url,target_url,alt_text'
+      )
+      .eq('placement', placement)
+      .eq('active', true)
+      .lte('starts_at', now)
+      .or(`ends_at.is.null,ends_at.gte.${now}`)
+      .order('created_at', { ascending: false })
+      .limit(5);
+
+    if (error) {
+      console.warn('ADS: tabel/iklan belum tersedia:', error.message);
+
+      // Iklan bukan komponen wajib.
+      // Website tetap normal jika belum ada iklan.
+      return res.json([]);
+    }
+
+    res.json(data || []);
+
+  } catch (e) {
+    console.warn('ADS ERROR:', e.message);
+
+    // Jangan membuat halaman utama menjadi 500
+    // hanya karena sistem iklan belum siap.
+    res.json([]);
+  }
 });
 app.post('/api/ads/:id/impression', interactionLimiter, async (req,res)=>{ const {error}=await adminClient.rpc('increment_ad_impressions',{campaign_id:req.params.id}); await trackEvent({event_type:'ad_impression',content_type:'ad',content_id:req.params.id}); res.status(error?500:204).end(); });
 app.post('/api/ads/:id/click', interactionLimiter, async (req,res)=>{ const {error}=await adminClient.rpc('increment_ad_clicks',{campaign_id:req.params.id}); await trackEvent({event_type:'ad_click',content_type:'ad',content_id:req.params.id}); res.status(error?500:204).end(); });
