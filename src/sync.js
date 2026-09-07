@@ -3,7 +3,7 @@ import Parser from 'rss-parser';
 import { supabase } from './supabase.js';
 
 const parser = new Parser({
-  timeout: 15000
+  timeout: 8000
 });
 
 const feeds = [
@@ -32,25 +32,50 @@ function cleanText(value = '') {
 function getCategory(title = '', url = '') {
   const text = `${title} ${url}`.toLowerCase();
 
-  if (text.includes('politik')) return 'Politik';
-  if (text.includes('hukum') || text.includes('polisi') || text.includes('korupsi')) return 'Hukum';
-  if (text.includes('ekonomi') || text.includes('bisnis') || text.includes('finance')) return 'Ekonomi';
-  if (text.includes('teknologi') || text.includes('tech') || text.includes('gadget')) return 'Teknologi';
-  if (text.includes('internasional') || text.includes('world')) return 'Internasional';
+  if (
+    text.includes('politik')
+  ) return 'Politik';
+
+  if (
+    text.includes('hukum') ||
+    text.includes('polisi') ||
+    text.includes('korupsi')
+  ) return 'Hukum';
+
+  if (
+    text.includes('ekonomi') ||
+    text.includes('bisnis') ||
+    text.includes('finance')
+  ) return 'Ekonomi';
+
+  if (
+    text.includes('teknologi') ||
+    text.includes('tech') ||
+    text.includes('gadget')
+  ) return 'Teknologi';
+
+  if (
+    text.includes('internasional') ||
+    text.includes('world')
+  ) return 'Internasional';
 
   return 'Nasional';
 }
 
-export async function syncFeeds() {
+async function processFeed(url) {
   let inserted = 0;
   let updated = 0;
   let failed = 0;
 
-  for (const url of feeds) {
-    try {
-      const feed = await parser.parseURL(url);
+  try {
+    console.log(`Membaca feed: ${url}`);
 
-      for (const item of feed.items || []) {
+    const feed = await parser.parseURL(url);
+
+    const items = (feed.items || []).slice(0, 10);
+
+    for (const item of items) {
+      try {
         const title = cleanText(item.title);
 
         if (!title) continue;
@@ -74,7 +99,10 @@ export async function syncFeeds() {
           item.pubDate ||
           new Date().toISOString();
 
-        const category = getCategory(title, articleUrl);
+        const category = getCategory(
+          title,
+          articleUrl
+        );
 
         const article = {
           title,
@@ -89,13 +117,18 @@ export async function syncFeeds() {
             null
         };
 
-        const { data: existing, error: findError } = await supabase
-          .from('articles')
-          .select('id')
-          .eq('url', articleUrl)
-          .maybeSingle();
+        const { data: existing, error: findError } =
+          await supabase
+            .from('articles')
+            .select('id')
+            .eq('url', articleUrl)
+            .maybeSingle();
 
         if (findError) {
+          console.error(
+            'Gagal mencari artikel:',
+            findError.message
+          );
           failed++;
           continue;
         }
@@ -107,6 +140,10 @@ export async function syncFeeds() {
             .eq('id', existing.id);
 
           if (error) {
+            console.error(
+              'Gagal update:',
+              error.message
+            );
             failed++;
           } else {
             updated++;
@@ -117,17 +154,59 @@ export async function syncFeeds() {
             .insert(article);
 
           if (error) {
+            console.error(
+              'Gagal insert:',
+              error.message
+            );
             failed++;
           } else {
             inserted++;
           }
         }
+      } catch (error) {
+        console.error(
+          'Gagal memproses artikel:',
+          error.message
+        );
+        failed++;
       }
-    } catch (error) {
-      console.error(`Gagal membaca feed: ${url}`, error.message);
-      failed++;
-      continue;
     }
+
+    return {
+      inserted,
+      updated,
+      failed
+    };
+
+  } catch (error) {
+    console.error(
+      `Gagal membaca feed: ${url}`,
+      error.message
+    );
+
+    return {
+      inserted,
+      updated,
+      failed: failed + 1
+    };
+  }
+}
+
+export async function syncFeeds() {
+  let inserted = 0;
+  let updated = 0;
+  let failed = 0;
+
+  console.log(
+    `Memulai sinkronisasi ${feeds.length} feed...`
+  );
+
+  for (const url of feeds) {
+    const result = await processFeed(url);
+
+    inserted += result.inserted;
+    updated += result.updated;
+    failed += result.failed;
   }
 
   const result = {
@@ -139,7 +218,10 @@ export async function syncFeeds() {
     time: new Date().toISOString()
   };
 
-  console.log('SYNC RESULT:', result);
+  console.log(
+    'SYNC RESULT:',
+    JSON.stringify(result)
+  );
 
   return result;
 }
