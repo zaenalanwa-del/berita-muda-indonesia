@@ -17,7 +17,6 @@ const feeds = [
   'https://www.cnnindonesia.com/ekonomi/rss',
   'https://www.cnnindonesia.com/teknologi/rss',
   'https://www.cnnindonesia.com/politik/rss',
-  'https://www.cnnindonesia.com/hukum/rss',
 
   'https://news.detik.com/berita/rss',
   'https://news.detik.com/internasional/rss',
