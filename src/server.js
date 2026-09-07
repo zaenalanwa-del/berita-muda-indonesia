@@ -83,17 +83,67 @@ app.post('/api/analytics/event', async (req,res) => {
   res.status(204).end();
 });
 
-app.get('/api/trending', async (req,res)=>{
+app.get('/api/trending', async (req, res) => {
   try {
-    const limit=cleanLimit(req.query.limit,20,10);
-    const {data,error}=await adminClient.from('trending_content').select('content_type,content_id,score,rank').order('rank',{ascending:true}).limit(limit);
-    if(error) throw error;
-    const idsA=(data||[]).filter(x=>x.content_type==='article').map(x=>x.content_id);
-    const idsV=(data||[]).filter(x=>x.content_type==='video').map(x=>x.content_id);
-    const [a,v]=await Promise.all([adminClient.from('articles').select('id,title,summary,image_url,category,views,likes,shares,published_at').in('id',idsA).eq('status','published'),adminClient.from('videos').select('id,title,description,thumbnail_url,category,views,likes,shares,created_at').in('id',idsV).eq('status','published')]);
-    const map=new Map([...(a.data||[]).map(x=>['article:'+x.id,{...x,content_type:'article'}]),...(v.data||[]).map(x=>['video:'+x.id,{...x,content_type:'video'}])]);
-    res.json((data||[]).map(t=>({...t,item:map.get(t.content_type+':'+t.content_id)})).filter(x=>x.item));
-  } catch(e){res.status(500).json({error:e.message});}
+    const limit = cleanLimit(req.query.limit, 20, 10);
+
+    const [articlesResult, videosResult] = await Promise.all([
+      adminClient
+        .from('articles')
+        .select('id,title,summary,image_url,category,views,likes,shares,published_at')
+        .eq('status', 'published')
+        .order('views', { ascending: false })
+        .limit(limit),
+
+      adminClient
+        .from('videos')
+        .select('id,title,description,thumbnail_url,category,views,likes,shares,created_at')
+        .eq('status', 'published')
+        .order('views', { ascending: false })
+        .limit(limit)
+    ]);
+
+    if (articlesResult.error) throw articlesResult.error;
+    if (videosResult.error) throw videosResult.error;
+
+    const articles = (articlesResult.data || []).map(item => ({
+      ...item,
+      content_type: 'article',
+      trending_score:
+        Number(item.views || 0) +
+        Number(item.likes || 0) * 2 +
+        Number(item.shares || 0) * 3
+    }));
+
+    const videos = (videosResult.data || []).map(item => ({
+      ...item,
+      content_type: 'video',
+      trending_score:
+        Number(item.views || 0) +
+        Number(item.likes || 0) * 2 +
+        Number(item.shares || 0) * 3
+    }));
+
+    const result = [...articles, ...videos]
+      .sort((a, b) => b.trending_score - a.trending_score)
+      .slice(0, limit)
+      .map((item, index) => ({
+        content_type: item.content_type,
+        content_id: item.id,
+        score: item.trending_score,
+        rank: index + 1,
+        item
+      }));
+
+    res.json(result);
+
+  } catch (e) {
+    console.error('TRENDING ERROR:', e.message);
+    res.status(500).json({
+      error: 'Gagal mengambil trending',
+      detail: e.message
+    });
+  }
 });
 
 app.get('/api/ads', async (req,res)=>{
