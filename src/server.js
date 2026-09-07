@@ -54,10 +54,17 @@ app.get('/syarat-ketentuan', (req,res)=>res.sendFile('terms.html',{root:'public'
 app.get('/pedoman-redaksi', (req,res)=>res.sendFile('editorial.html',{root:'public'}));
 app.get('/disclaimer', (req,res)=>res.sendFile('disclaimer.html',{root:'public'}));
 
-app.use(express.static('public', { extensions: ['html'] }));
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const publicDir = path.join(__dirname, '..', 'public');
+
+app.use(express.static(publicDir, { extensions: ['html'] }));
 
 app.get('/', (req, res) => {
-  res.sendFile('index.html', { root: 'public' });
+  res.sendFile(path.join(publicDir, 'index.html'));
 });
 
 const authLimiter = rateLimit({ windowMs: 15 * 60_000, max: 10, standardHeaders: true, legacyHeaders: false });
