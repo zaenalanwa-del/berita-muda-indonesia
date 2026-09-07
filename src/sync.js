@@ -1,155 +1,145 @@
-```javascript
 import 'dotenv/config';
 import Parser from 'rss-parser';
 import { supabase } from './supabase.js';
 
 const parser = new Parser({
-  timeout: 15000,
-  headers: {
-    'User-Agent': 'BeritaMudaIndonesia/1.0'
-  }
+  timeout: 15000
 });
 
-const feeds = (process.env.RSS_FEEDS || '')
-  .split(',')
-  .map(x => x.trim())
-  .filter(Boolean);
+const feeds = [
+  'https://www.cnnindonesia.com/nasional/rss',
+  'https://www.cnnindonesia.com/internasional/rss',
+  'https://www.cnnindonesia.com/ekonomi/rss',
+  'https://www.cnnindonesia.com/teknologi/rss',
+  'https://www.cnnindonesia.com/politik/rss',
+  'https://www.cnnindonesia.com/hukum/rss',
+  'https://news.detik.com/berita/rss',
+  'https://news.detik.com/internasional/rss',
+  'https://finance.detik.com/rss',
+  'https://inet.detik.com/rss',
+  'https://tekno.kompas.com/rss',
+  'https://nasional.kompas.com/rss',
+  'https://internasional.kompas.com/rss'
+];
 
-function categoryFor(url, title = '') {
-  const text = (url + ' ' + title).toLowerCase();
-
-  if (text.includes('politik')) return 'POLITIK';
-  if (text.includes('hukum')) return 'HUKUM';
-  if (text.includes('ekonomi')) return 'EKONOMI';
-  if (text.includes('teknologi')) return 'TEKNOLOGI';
-  if (text.includes('olahraga')) return 'OLAHRAGA';
-  if (text.includes('internasional')) return 'INTERNASIONAL';
-  if (text.includes('hiburan')) return 'HIBURAN';
-  if (text.includes('lifestyle')) return 'LIFESTYLE';
-
-  return 'NASIONAL';
+function cleanText(value = '') {
+  return String(value)
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
-/*
- * PENTING:
- * server.js membutuhkan export bernama "syncFeeds".
- */
-export async function syncFeeds() {
-  let feedsProcessed = 0;
-  let feedsFailed = 0;
-  let rowsSeen = 0;
+function getCategory(title = '', url = '') {
+  const text = `${title} ${url}`.toLowerCase();
 
-  console.log('[SYNC] START feeds=' + feeds.length);
+  if (text.includes('politik')) return 'Politik';
+  if (text.includes('hukum') || text.includes('polisi') || text.includes('korupsi')) return 'Hukum';
+  if (text.includes('ekonomi') || text.includes('bisnis') || text.includes('finance')) return 'Ekonomi';
+  if (text.includes('teknologi') || text.includes('tech') || text.includes('gadget')) return 'Teknologi';
+  if (text.includes('internasional') || text.includes('world')) return 'Internasional';
+
+  return 'Nasional';
+}
+
+export async function syncFeeds() {
+  let inserted = 0;
+  let updated = 0;
+  let failed = 0;
 
   for (const url of feeds) {
     try {
-      console.log('[SYNC] Reading ' + url);
-
       const feed = await parser.parseURL(url);
 
-      feedsProcessed++;
+      for (const item of feed.items || []) {
+        const title = cleanText(item.title);
 
-      const rows = (feed.items || [])
-        .slice(0, 50)
-        .map(item => ({
-          title: (item.title || '').trim(),
+        if (!title) continue;
 
-          summary: (
-            item.contentSnippet ||
-            item.content ||
-            item.summary ||
-            ''
-          )
-            .replace(/<[^>]*>/g, '')
-            .replace(/\s+/g, ' ')
-            .trim()
-            .slice(0, 500),
+        const articleUrl =
+          item.link ||
+          item.guid ||
+          '';
 
-          url: item.link,
+        if (!articleUrl) continue;
 
-          source: String(
-            feed.title || 'RSS'
-          ).slice(0, 120),
+        const description = cleanText(
+          item.contentSnippet ||
+          item.content ||
+          item.summary ||
+          ''
+        );
 
-          category: categoryFor(
-            url,
-            item.title || ''
-          ),
+        const publishedAt =
+          item.isoDate ||
+          item.pubDate ||
+          new Date().toISOString();
 
+        const category = getCategory(title, articleUrl);
+
+        const article = {
+          title,
+          url: articleUrl,
+          description,
+          category,
+          published_at: publishedAt,
+          source: feed.title || 'Berita Muda Indonesia',
           image_url:
             item.enclosure?.url ||
             item['media:content']?.url ||
-            item['media:thumbnail']?.url ||
-            null,
+            null
+        };
 
-          published_at:
-            item.isoDate ||
-            item.pubDate ||
-            new Date().toISOString(),
+        const { data: existing, error: findError } = await supabase
+          .from('articles')
+          .select('id')
+          .eq('url', articleUrl)
+          .maybeSingle();
 
-          status: 'published'
-        }))
-        .filter(item => item.title && item.url);
+        if (findError) {
+          failed++;
+          continue;
+        }
 
-      rowsSeen += rows.length;
+        if (existing?.id) {
+          const { error } = await supabase
+            .from('articles')
+            .update(article)
+            .eq('id', existing.id);
 
-      if (rows.length === 0) {
-        console.log('[SYNC] Empty feed ' + url);
-        continue;
+          if (error) {
+            failed++;
+          } else {
+            updated++;
+          }
+        } else {
+          const { error } = await supabase
+            .from('articles')
+            .insert(article);
+
+          if (error) {
+            failed++;
+          } else {
+            inserted++;
+          }
+        }
       }
-
-      const { error } = await supabase
-        .from('articles')
-        .upsert(rows, {
-          onConflict: 'url',
-          ignoreDuplicates: true
-        });
-
-      if (error) {
-        feedsFailed++;
-        console.error(
-          '[SYNC] Database error ' +
-          url +
-          ': ' +
-          error.message
-        );
-        continue;
-      }
-
-      console.log(
-        '[SYNC] OK ' +
-        url +
-        ' articles=' +
-        rows.length
-      );
-
     } catch (error) {
-      feedsFailed++;
-
-      console.error(
-        '[SYNC] RSS failed ' +
-        url +
-        ': ' +
-        (error?.message || error)
-      );
-
-      // Feed bermasalah tidak menghentikan feed lainnya.
+      console.error(`Gagal membaca feed: ${url}`, error.message);
+      failed++;
       continue;
     }
   }
 
   const result = {
     ok: true,
+    inserted,
+    updated,
+    failed,
     feeds: feeds.length,
-    feedsProcessed,
-    feedsFailed,
-    rowsSeen
+    time: new Date().toISOString()
   };
 
-  console.log(
-    '[SYNC] FINISHED ' +
-    JSON.stringify(result)
-  );
+  console.log('SYNC RESULT:', result);
 
   return result;
 }
