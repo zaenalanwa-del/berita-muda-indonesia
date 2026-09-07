@@ -19,7 +19,6 @@ const feeds = [
   'https://inet.detik.com/rss',
   'https://tekno.kompas.com/rss',
   'https://nasional.kompas.com/rss',
-  'https://internasional.kompas.com/rss'
 ];
 
 function cleanText(value = '') {
