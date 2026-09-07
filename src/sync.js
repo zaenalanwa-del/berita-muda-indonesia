@@ -12,45 +12,38 @@ const parser = new Parser({
 
 const feeds = (process.env.RSS_FEEDS || '')
   .split(',')
-  .map(function (x) {
-    return x.trim();
-  })
+  .map(x => x.trim())
   .filter(Boolean);
 
-function categoryFor(url, title) {
-  const text = (url + ' ' + (title || '')).toLowerCase();
+function categoryFor(url, title = '') {
+  const text = (url + ' ' + title).toLowerCase();
 
-  const categories = {
-    politik: 'POLITIK',
-    hukum: 'HUKUM',
-    ekonomi: 'EKONOMI',
-    teknologi: 'TEKNOLOGI',
-    olahraga: 'OLAHRAGA',
-    internasional: 'INTERNASIONAL',
-    hiburan: 'HIBURAN',
-    lifestyle: 'LIFESTYLE'
-  };
-
-  for (const key of Object.keys(categories)) {
-    if (text.includes(key)) {
-      return categories[key];
-    }
-  }
+  if (text.includes('politik')) return 'POLITIK';
+  if (text.includes('hukum')) return 'HUKUM';
+  if (text.includes('ekonomi')) return 'EKONOMI';
+  if (text.includes('teknologi')) return 'TEKNOLOGI';
+  if (text.includes('olahraga')) return 'OLAHRAGA';
+  if (text.includes('internasional')) return 'INTERNASIONAL';
+  if (text.includes('hiburan')) return 'HIBURAN';
+  if (text.includes('lifestyle')) return 'LIFESTYLE';
 
   return 'NASIONAL';
 }
 
+/*
+ * PENTING:
+ * server.js membutuhkan export bernama "syncFeeds".
+ */
 export async function syncFeeds() {
   let feedsProcessed = 0;
   let feedsFailed = 0;
   let rowsSeen = 0;
-  let rowsInserted = 0;
 
-  console.log('[SYNC] Starting. feeds=' + feeds.length);
+  console.log('[SYNC] START feeds=' + feeds.length);
 
   for (const url of feeds) {
     try {
-      console.log('[SYNC] Reading: ' + url);
+      console.log('[SYNC] Reading ' + url);
 
       const feed = await parser.parseURL(url);
 
@@ -58,8 +51,10 @@ export async function syncFeeds() {
 
       const rows = (feed.items || [])
         .slice(0, 50)
-        .map(function (item) {
-          const summary = (
+        .map(item => ({
+          title: (item.title || '').trim(),
+
+          summary: (
             item.contentSnippet ||
             item.content ||
             item.summary ||
@@ -68,78 +63,77 @@ export async function syncFeeds() {
             .replace(/<[^>]*>/g, '')
             .replace(/\s+/g, ' ')
             .trim()
-            .slice(0, 500);
+            .slice(0, 500),
 
-          return {
-            title: (item.title || '').trim(),
-            summary: summary,
-            url: item.link,
-            source: String(feed.title || 'RSS').slice(0, 120),
-            category: categoryFor(url, item.title),
-            image_url:
-              (item.enclosure && item.enclosure.url) ||
-              (item['media:content'] && item['media:content'].url) ||
-              (item['media:thumbnail'] && item['media:thumbnail'].url) ||
-              null,
-            published_at:
-              item.isoDate ||
-              item.pubDate ||
-              new Date().toISOString(),
-            status: 'published'
-          };
-        })
-        .filter(function (item) {
-          return item.title && item.url;
-        });
+          url: item.link,
+
+          source: String(
+            feed.title || 'RSS'
+          ).slice(0, 120),
+
+          category: categoryFor(
+            url,
+            item.title || ''
+          ),
+
+          image_url:
+            item.enclosure?.url ||
+            item['media:content']?.url ||
+            item['media:thumbnail']?.url ||
+            null,
+
+          published_at:
+            item.isoDate ||
+            item.pubDate ||
+            new Date().toISOString(),
+
+          status: 'published'
+        }))
+        .filter(item => item.title && item.url);
 
       rowsSeen += rows.length;
 
       if (rows.length === 0) {
-        console.log('[SYNC] No articles: ' + url);
+        console.log('[SYNC] Empty feed ' + url);
         continue;
       }
 
-      const result = await supabase
+      const { error } = await supabase
         .from('articles')
         .upsert(rows, {
           onConflict: 'url',
           ignoreDuplicates: true
         });
 
-      if (result.error) {
+      if (error) {
         feedsFailed++;
-
         console.error(
-          '[SYNC] Database error: ' +
-            url +
-            ' - ' +
-            result.error.message
+          '[SYNC] Database error ' +
+          url +
+          ': ' +
+          error.message
         );
-
         continue;
       }
 
-      rowsInserted += rows.length;
-
       console.log(
-        '[SYNC] OK: ' +
-          url +
-          ' articles=' +
-          rows.length
+        '[SYNC] OK ' +
+        url +
+        ' articles=' +
+        rows.length
       );
 
     } catch (error) {
       feedsFailed++;
 
       console.error(
-        '[SYNC] RSS skipped: ' +
-          url +
-          ' - ' +
-          (error && error.message
-            ? error.message
-            : error)
+        '[SYNC] RSS failed ' +
+        url +
+        ': ' +
+        (error?.message || error)
       );
 
+      // Feed bermasalah tidak menghentikan feed lainnya.
       continue;
     }
   }
@@ -147,24 +141,16 @@ export async function syncFeeds() {
   const result = {
     ok: true,
     feeds: feeds.length,
-    feedsProcessed: feedsProcessed,
-    feedsFailed: feedsFailed,
-    rowsSeen: rowsSeen,
-    rowsInserted: rowsInserted
+    feedsProcessed,
+    feedsFailed,
+    rowsSeen
   };
 
   console.log(
-    '[SYNC] Finished: ' +
-      JSON.stringify(result)
+    '[SYNC] FINISHED ' +
+    JSON.stringify(result)
   );
 
   return result;
-}
-
-if (
-  import.meta.url ===
-  'file://' + process.argv[1]
-) {
-  await syncFeeds();
 }
 ```
