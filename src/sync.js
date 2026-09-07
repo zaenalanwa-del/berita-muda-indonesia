@@ -153,4 +153,3 @@ export async function syncFeeds() {
 
   return result;
 }
-```
