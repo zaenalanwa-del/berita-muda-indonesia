@@ -225,10 +225,28 @@ app.get('/api/cron/sync', async (req,res) => {
   if (!expected) return res.status(503).json({error:'CRON_SECRET belum dikonfigurasi'});
   const auth = req.headers.authorization || '';
   if (auth !== `Bearer ${expected}`) return res.status(401).json({error:'Unauthorized'});
-  try { const result = await syncFeeds();
-    await adminClient.rpc('rebuild_trending').catch(()=>{});
-    res.json({ok:true, ...result}); }
-  catch (e) { res.status(500).json({ok:false,error:e.message}); }
+  try {
+  const result = await syncFeeds();
+
+  // Trending sekarang dihitung langsung oleh /api/trending.
+  // Fungsi lama tetap dicoba, tetapi tidak boleh membuat cron gagal.
+  await adminClient.rpc('rebuild_trending').catch((error) => {
+    console.warn('REBUILD TRENDING dilewati:', error.message);
+  });
+
+  res.json({
+    ok: true,
+    ...result
+  });
+
+} catch (e) {
+  console.error('CRON SYNC ERROR:', e);
+
+  res.status(500).json({
+    ok: false,
+    error: e.message
+  });
+}
 });
 
 const requireUser = async (req,res,next) => {
