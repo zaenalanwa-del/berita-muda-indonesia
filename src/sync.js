@@ -18,7 +18,6 @@ const feeds = [
   'https://finance.detik.com/rss',
   'https://inet.detik.com/rss',
   'https://tekno.kompas.com/rss',
-  'https://nasional.kompas.com/rss',
 ];
 
 function cleanText(value = '') {
