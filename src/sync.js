@@ -3,9 +3,14 @@ import Parser from 'rss-parser';
 import { supabase } from './supabase.js';
 
 const parser = new Parser({
-  timeout: 8000
+  timeout: 8000,
+  headers: {
+    'User-Agent': 'Berita-Muda-Indonesia/1.0'
+  }
 });
 
+// Sumber berita.
+// Jika suatu feed mati/404, sistem otomatis melewatinya.
 const feeds = [
   'https://www.cnnindonesia.com/nasional/rss',
   'https://www.cnnindonesia.com/internasional/rss',
@@ -13,11 +18,11 @@ const feeds = [
   'https://www.cnnindonesia.com/teknologi/rss',
   'https://www.cnnindonesia.com/politik/rss',
   'https://www.cnnindonesia.com/hukum/rss',
+
   'https://news.detik.com/berita/rss',
   'https://news.detik.com/internasional/rss',
   'https://finance.detik.com/rss',
-  'https://inet.detik.com/rss',
-  'https://tekno.kompas.com/rss',
+  'https://inet.detik.com/rss'
 ];
 
 function cleanText(value = '') {
@@ -31,33 +36,69 @@ function getCategory(title = '', url = '') {
   const text = `${title} ${url}`.toLowerCase();
 
   if (
-    text.includes('politik')
-  ) return 'Politik';
+    text.includes('politik') ||
+    text.includes('pemilu') ||
+    text.includes('presiden')
+  ) {
+    return 'Politik';
+  }
 
   if (
     text.includes('hukum') ||
     text.includes('polisi') ||
-    text.includes('korupsi')
-  ) return 'Hukum';
+    text.includes('korupsi') ||
+    text.includes('pengadilan')
+  ) {
+    return 'Hukum';
+  }
 
   if (
     text.includes('ekonomi') ||
     text.includes('bisnis') ||
-    text.includes('finance')
-  ) return 'Ekonomi';
+    text.includes('finance') ||
+    text.includes('rupiah') ||
+    text.includes('saham')
+  ) {
+    return 'Ekonomi';
+  }
 
   if (
     text.includes('teknologi') ||
+    text.includes('tekno') ||
     text.includes('tech') ||
-    text.includes('gadget')
-  ) return 'Teknologi';
+    text.includes('gadget') ||
+    text.includes('digital')
+  ) {
+    return 'Teknologi';
+  }
 
   if (
     text.includes('internasional') ||
-    text.includes('world')
-  ) return 'Internasional';
+    text.includes('world') ||
+    text.includes('amerika') ||
+    text.includes('eropa') ||
+    text.includes('china')
+  ) {
+    return 'Internasional';
+  }
 
   return 'Nasional';
+}
+
+function getImage(item) {
+  if (item.enclosure?.url) {
+    return item.enclosure.url;
+  }
+
+  if (item['media:content']?.url) {
+    return item['media:content'].url;
+  }
+
+  if (item['media:thumbnail']?.url) {
+    return item['media:thumbnail'].url;
+  }
+
+  return null;
 }
 
 async function processFeed(url) {
@@ -70,20 +111,29 @@ async function processFeed(url) {
 
     const feed = await parser.parseURL(url);
 
-    const items = (feed.items || []).slice(0, 10);
+    const items = (feed.items || []).slice(0, 8);
+
+    console.log(
+      `Feed berhasil: ${url} | ${items.length} artikel`
+    );
 
     for (const item of items) {
       try {
         const title = cleanText(item.title);
 
-        if (!title) continue;
+        if (!title) {
+          continue;
+        }
 
-        const articleUrl =
+        const articleUrl = cleanText(
           item.link ||
           item.guid ||
-          '';
+          ''
+        );
 
-        if (!articleUrl) continue;
+        if (!articleUrl) {
+          continue;
+        }
 
         const description = cleanText(
           item.contentSnippet ||
@@ -102,19 +152,13 @@ async function processFeed(url) {
           articleUrl
         );
 
-        const article = {
-          title,
-          url: articleUrl,
-          description,
-          category,
-          published_at: publishedAt,
-          source: feed.title || 'Berita Muda Indonesia',
-          image_url:
-            item.enclosure?.url ||
-            item['media:content']?.url ||
-            null
-        };
+        const source =
+          cleanText(feed.title) ||
+          'Berita Muda Indonesia';
 
+        const imageUrl = getImage(item);
+
+        // Cek apakah berita sudah ada
         const { data: existing, error: findError } =
           await supabase
             .from('articles')
@@ -124,87 +168,120 @@ async function processFeed(url) {
 
         if (findError) {
           console.error(
-            'Gagal mencari artikel:',
-            findError.message
+            `Gagal mencari artikel: ${findError.message}`
           );
+
           failed++;
           continue;
         }
 
+        const article = {
+          title,
+          url: articleUrl,
+          description,
+          category,
+          published_at: publishedAt,
+          source,
+          image_url: imageUrl
+        };
+
+        // UPDATE berita lama
         if (existing?.id) {
-          const { error } = await supabase
-            .from('articles')
-            .update(article)
-            .eq('id', existing.id);
+          const { error } =
+            await supabase
+              .from('articles')
+              .update(article)
+              .eq('id', existing.id);
 
           if (error) {
             console.error(
-              'Gagal update:',
-              error.message
+              `Gagal update artikel: ${error.message}`
             );
+
             failed++;
           } else {
             updated++;
           }
-        } else {
-          const { error } = await supabase
+
+          continue;
+        }
+
+        // INSERT berita baru
+        const { error } =
+          await supabase
             .from('articles')
             .insert(article);
 
-          if (error) {
-            console.error(
-              'Gagal insert:',
-              error.message
-            );
-            failed++;
-          } else {
-            inserted++;
-          }
+        if (error) {
+          console.error(
+            `Gagal insert artikel: ${error.message}`
+          );
+
+          failed++;
+        } else {
+          inserted++;
         }
+
       } catch (error) {
         console.error(
-          'Gagal memproses artikel:',
-          error.message
+          `Gagal memproses artikel: ${error.message}`
         );
+
         failed++;
       }
     }
 
-    return {
-      inserted,
-      updated,
-      failed
-    };
-
   } catch (error) {
-    console.error(
-      `Gagal membaca feed: ${url}`,
-      error.message
+
+    // PENTING:
+    // Feed 404 / timeout / error tidak menghentikan
+    // sinkronisasi feed lainnya.
+
+    console.warn(
+      `Feed dilewati: ${url} | ${error.message}`
     );
 
     return {
-      inserted,
-      updated,
-      failed: failed + 1
+      inserted: 0,
+      updated: 0,
+      failed: 0,
+      skipped: 1
     };
   }
+
+  return {
+    inserted,
+    updated,
+    failed,
+    skipped: 0
+  };
 }
 
 export async function syncFeeds() {
   let inserted = 0;
   let updated = 0;
   let failed = 0;
+  let skipped = 0;
 
   console.log(
     `Memulai sinkronisasi ${feeds.length} feed...`
   );
 
-  for (const url of feeds) {
-    const result = await processFeed(url);
+  /*
+   * Jalankan feed secara bersamaan.
+   * Ini jauh lebih cepat daripada menunggu
+   * satu feed selesai baru membaca feed berikutnya.
+   */
 
-    inserted += result.inserted;
-    updated += result.updated;
-    failed += result.failed;
+  const results = await Promise.all(
+    feeds.map((url) => processFeed(url))
+  );
+
+  for (const result of results) {
+    inserted += result.inserted || 0;
+    updated += result.updated || 0;
+    failed += result.failed || 0;
+    skipped += result.skipped || 0;
   }
 
   const result = {
@@ -212,6 +289,7 @@ export async function syncFeeds() {
     inserted,
     updated,
     failed,
+    skipped,
     feeds: feeds.length,
     time: new Date().toISOString()
   };
