@@ -228,10 +228,25 @@ app.get('/api/cron/sync', async (req,res) => {
   try {
   const result = await syncFeeds();
 
-  // Trending sekarang dihitung langsung oleh /api/trending.
-  // Fungsi lama tetap dicoba, tetapi tidak boleh membuat cron gagal.
-  await adminClient.rpc('rebuild_trending').catch((error) => {
-    console.warn('REBUILD TRENDING dilewati:', error.message);
+  try {
+    const { error } = await adminClient.rpc('rebuild_trending');
+
+    if (error) {
+      console.warn(
+        'REBUILD TRENDING dilewati:',
+        error.message
+      );
+    }
+  } catch (error) {
+    console.warn(
+      'REBUILD TRENDING dilewati:',
+      error.message
+    );
+  }
+
+  res.json({
+    ok: true,
+    ...result
   });
 
   res.json({
